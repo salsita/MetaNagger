@@ -31,7 +31,7 @@ CFG_FILE = '%s/.workflow.cfg' % os.environ['HOME']
 
 # How old can the reviews be?
 DAYS_DELTA = 5
-METAREVIEWER_SLACK_NAME = 'tomas.brambora'
+METAREVIEWER_SLACK_NAME = 'matt'
 REVIEW_URL_ROOT = 'https://review.salsitasoft.com/r/'
 
 
