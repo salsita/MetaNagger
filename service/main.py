@@ -42,7 +42,7 @@ def notify_user(req):
         print " >>> sending review id %s" % (req['id'],)
         _slack.chat.post_message(
             '@' + METAREVIEWER_SLACK_NAME,
-            "You lucky metareview URL for today is: %s%s" % 
+            "Your lucky metareview URL for today is: %s%s" % 
                 (REVIEW_URL_ROOT, req['id']))
     except Exception, e:
         print 'ERROR when notifying user', e
