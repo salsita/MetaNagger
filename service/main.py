@@ -33,6 +33,7 @@ CFG_FILE = '%s/.workflow.cfg' % os.environ['HOME']
 DAYS_DELTA = 5
 METAREVIEWER_SLACK_NAME = 'matt'
 REVIEW_URL_ROOT = 'https://review.salsitasoft.com/r/'
+LOOP_MAX = 5
 
 
 _slack = None
@@ -68,8 +69,22 @@ def main():
     reqs = rb.extensions.get_review_requests2(
         {'max-results': 200, 'ship-it': 1, 'last-updated-from': time_added}, auth)
 
-    req = random.choice(reqs)
-    notify_user(req)
+    print 'reviews: %s' % len(reqs)
+
+    result = None
+    count = 0
+    while count < LOOP_MAX:
+        req = random.choice(reqs)
+        last_update = rb.extensions.get_last_update_info(auth, req['id'])
+        if last_update['type'] == 'review':
+            result = req
+            break
+        else:
+            print "Last update type: %s. Trying again" % last_update['type']
+            count = count + 1
+    
+    print "Review reqest found: %s" % result
+    notify_user(result)
 
 
 if __name__ == '__main__':
