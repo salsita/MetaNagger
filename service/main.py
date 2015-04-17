@@ -1,24 +1,20 @@
 """ This is a service intended to be run periodically as a CRON job.
 
-    It's purpose is to scan Pivotal Tracker and ReviewBoard and append
-    a 'reviewed' label to any story that is finished and all its review requests
-    have been approved (there must be at least 1 review request for the story in
-    order for the service to notice it).
+    It randomly selects a RB review that got ship-it label in last 5 days and
+    notifies configured user about hte review on slack.
 
-    The service expects a '${HOME}/.workflow.cfg' file with the following
-    structure:
+    The service expects a '${HOME}/.workflow.cfg' file with the following structure:
 
     [auth]
-    pt_token = <PT_token>
     rb_user = <reviewboard username>
     rb_pwd = <password for the reviewboard user>
+    slack_token = <slack token, apparently>
 
     The users (in PT & RB) should have access to all the projects (otherwise the
     service will not be able to update all the stories).
 """
 
 import os
-import sys
 import rb.extensions
 import ConfigParser
 import datetime
@@ -29,63 +25,77 @@ from dateutil.relativedelta import relativedelta as delta
 
 CFG_FILE = '%s/.workflow.cfg' % os.environ['HOME']
 
-# How old can the reviews be?
-DAYS_DELTA = 5
-METAREVIEWER_SLACK_NAME = 'matt'
+DAYS_DELTA = 5  # how old can the reviews be?
+METAREVIEWER_SLACK_NAME = 'roman'
 REVIEW_URL_ROOT = 'https://review.salsitasoft.com/r/'
-LOOP_MAX = 5
 
 
-_slack = None
+# Get RB reviews (ship-it'ed in last 5 days) with provided status
+def get_reviews(status, auth):
+    time_added = datetime.date.today() - delta(days=5)
+    return rb.extensions.get_review_requests2({
+        'max-results': 200,
+        'ship-it-count-gt': 0,
+        'last-updated-from': time_added,
+        'status': status
+    }, auth)
 
-def notify_user(req):
+# Parse review requests, group their respective ids by repository name
+def group_ids_by_rep_name(reviews, result):
+    for r in reviews:
+        rep_name = r['links']['repository']['title']
+        result[rep_name] = result.get(rep_name, []);
+        result[rep_name].append(r['id'])
+
+# Notify user on slack
+def notify(slack_token, message):
+    slack = Slacker(slack_token)
     try:
-        print " >>> sending review id %s" % (req['id'],)
-        _slack.chat.post_message(
-            '@' + METAREVIEWER_SLACK_NAME,
-            "Your lucky metareview URL for today is: %s%s" % 
-                (REVIEW_URL_ROOT, req['id']))
+        slack.chat.post_message('@' + METAREVIEWER_SLACK_NAME, message)
     except Exception, e:
-        print 'ERROR when notifying user', e
-
+        print '>>> ERROR when notifying user', e
 
 def main():
-    global _slack
-    # Read the sensitive data from a config file.
+    # Read the sensitive data from a config file
     config = ConfigParser.RawConfigParser()
     config.read(CFG_FILE)
-    pt_token = config.get('auth', 'pt_token')
     rb_user = config.get('auth', 'rb_user')
     rb_pwd = config.get('auth', 'rb_pwd')
     slack_token = config.get('auth', 'slack_token')
 
-    # HACK: Set the gobal vars.
-    _slack = Slacker(slack_token)
-
+    # Get requests (status: pending, submitted)
     auth = {'username': rb_user, 'password': rb_pwd}
-    time_added = datetime.date.today() - delta(days=5)
+    reqs_pending = get_reviews('pending', auth)
+    reqs_submitted = get_reviews('submitted', auth)
 
-    # Returns all published unshipped requests.
-    reqs = rb.extensions.get_review_requests2(
-        {'max-results': 200, 'ship-it': 1, 'last-updated-from': time_added}, auth)
-
-    print 'reviews: %s' % len(reqs)
-
-    result = None
-    count = 0
-    while count < LOOP_MAX:
-        req = random.choice(reqs)
-        last_update = rb.extensions.get_last_update_info(auth, req['id'])
-        if last_update['type'] == 'review':
-            result = req
-            break
-        else:
-            print "Last update type: %s. Trying again" % last_update['type']
-            count = count + 1
-    
-    print "Review reqest found: %s" % result
-    notify_user(result)
-
+    # Group request ids by repository name
+    reqs = {}
+    group_ids_by_rep_name(reqs_pending, reqs)
+    group_ids_by_rep_name(reqs_submitted, reqs)
+   
+    # Pick one review and let metareviewer know about it
+    if len(reqs) is 0:
+        notify(
+            slack_token,
+            'No metareview for today, it seems there was no ship-it-ed review in last 5 days! :wonder:'
+        )
+        return
+    repo = random.choice(reqs.keys())
+    req = random.choice(reqs[repo])
+    comment = '' 
+    total = 0
+    for r in reqs.keys():
+        cnt = len(reqs[r])
+        comment = comment + ('\n+ %s %s from project %s' % 
+            (cnt, 'review' if cnt == 1 else 'reviews', r))
+        total = total + cnt
+    comment = ('\nThe review was randomly (but carefully) chosen from %s %s:' % 
+        (total, 'review' if total == 1 else 'reviews')) + comment
+    notify(
+        slack_token,
+        (('Your lucky metareview URL for today is: %s%s\n' +
+         'Project: %s\n') % (REVIEW_URL_ROOT, req, repo)) + comment
+    )
 
 if __name__ == '__main__':
     main()
