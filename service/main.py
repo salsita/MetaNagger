@@ -26,7 +26,7 @@ from dateutil.relativedelta import relativedelta as delta
 CFG_FILE = '%s/.workflow.cfg' % os.environ['HOME']
 
 DAYS_DELTA = 5  # how old can the reviews be?
-METAREVIEWER_SLACK_NAME = 'roman'
+METAREVIEWER_SLACK_NAME = 'matt'
 REVIEW_URL_ROOT = 'https://review.salsitasoft.com/r/'
 
 
